@@ -16,16 +16,19 @@ class RandomLoaderException(Exception):
 
 class KeepForRandomBase(RandomBase):
     @classmethod
-    def INPUT_TYPES(s):
-        return {"required": { "seed": SEED_INPUT(), 
-                             "keep_for": ("INT", {"default": 1, "min":1, "max":100}), 
-                             "mode": ( ["random", "systematic"], {}), 
-                             "subfolder": ("STRING", {"default":"random"}) } }
+    def INPUT_TYPES(cls):
+        return {"required": { 
+            "seed": SEED_INPUT(), 
+            "keep_for": ("INT", {"default": 1, "min": 1, "max": 100}), 
+            "mode": ( ["random", "systematic"], {}), 
+            "follow_subfolders": (["false", "true"], {"default": "false"}),
+            "subfolder": ("STRING", {"default": "random"}) 
+        }}
     
     @classmethod
     def add_input_types(cls, it):
         add = KeepForRandomBase.INPUT_TYPES()
-        for x in add['required']: it['required'][x] = add['required'][x]
+        it['required'].update(add['required'])
         return it
 
     def __init__(self):
@@ -33,11 +36,14 @@ class KeepForRandomBase(RandomBase):
         self.last_systematic = -1
         self.result = None
         self.systematic = False
+        self.follow_subfolders = False
 
-    def func(self, seed, keep_for, mode, subfolder, **kwargs):
+    def func(self, seed, keep_for, mode, subfolder, follow_subfolders, **kwargs):
         self.subfolder = subfolder
         self.since_last_change += 1
-        self.systematic = (mode=="systematic")
+        self.follow_subfolders = follow_subfolders == "true"
+        
+        self.systematic = (mode == "systematic")
         if self.since_last_change >= keep_for or self.result is None:
             self.since_last_change = 0
             with SeedContext(seed):
@@ -45,24 +51,39 @@ class KeepForRandomBase(RandomBase):
         return self.result
     
     def _get_list(self, category):
+        if category not in folder_names_and_paths:
+            raise RandomLoaderException(f"Invalid category: {category}")
+        
         fnap = folder_names_and_paths[category]
         options = set()
+
         for folder in fnap[0]:
-            random_folder = os.path.join(folder, self.subfolder)
-            if os.path.exists(random_folder):
-                for file in os.listdir(random_folder):
-                    if os.path.splitext(file)[1] in fnap[1]:
-                        options.add(os.path.join(random_folder,file))
+            search_folder = os.path.join(folder, self.subfolder)
+            if os.path.exists(search_folder):
+                if self.follow_subfolders:
+                    for root, _, files in os.walk(search_folder):
+                        options.update(
+                            os.path.join(root, file) for file in files if os.path.splitext(file)[1] in fnap[1]
+                        )
+                else:
+                    options.update(
+                        os.path.join(search_folder, file) for file in os.listdir(search_folder)
+                        if os.path.isfile(os.path.join(search_folder, file)) and os.path.splitext(file)[1] in fnap[1]
+                    )
+        
+        if not options:
+            raise RandomLoaderException(f"No files found in {search_folder}")
         return list(options)
     
     def choose_from(self, category_or_list):
-        lst = self._get_list(category_or_list) if isinstance(category_or_list,str) else category_or_list
-        if not len(lst): raise RandomLoaderException(f"Nothing in list to choose from")
+        lst = self._get_list(category_or_list) if isinstance(category_or_list, str) else category_or_list
+        if not lst:
+            raise RandomLoaderException("No items available to choose from")
+        
         if self.systematic:
-            self.last_systematic = (1+self.last_systematic) % len(lst)
+            self.last_systematic = (self.last_systematic + 1) % len(lst)
             return lst[self.last_systematic]
-        else:
-            return random.choice(lst)
+        return random.choice(lst)
 
 class LoadRandomCheckpoint(KeepForRandomBase, CheckpointLoaderSimple):
     RETURN_TYPES = ("MODEL", "CLIP", "VAE", "STRING",)
@@ -70,8 +91,9 @@ class LoadRandomCheckpoint(KeepForRandomBase, CheckpointLoaderSimple):
 
     def func_(self):
         ckpt_path = self.choose_from("checkpoints")
+        print(f"[INFO] Selected Checkpoint: {ckpt_path}")
         out = load_checkpoint_guess_config(ckpt_path, output_vae=True, output_clip=True, embedding_directory=get_folder_paths("embeddings"))
-        return out[:3] + (os.path.splitext(os.path.split(ckpt_path)[1])[0],)
+        return out[:3] + (os.path.splitext(os.path.basename(ckpt_path))[0],)
     
 class LoadRandomLora(KeepForRandomBase, LoraLoader):
     RETURN_TYPES = ("MODEL", "CLIP", "STRING",)
@@ -89,33 +111,37 @@ class LoadRandomLora(KeepForRandomBase, LoraLoader):
 
     def func_(self, **kwargs):
         lora_name = self.choose_from("loras")
-        lora_name = os.path.join(self.subfolder, os.path.split(lora_name)[1])
-        return self.load_lora(lora_name=lora_name, **kwargs) + (os.path.splitext(os.path.split(lora_name)[1])[0],)
+        lora_name = os.path.join(self.subfolder, os.path.basename(lora_name))
+        print(f"[INFO] Selected Lora: {lora_name}")
+        return self.load_lora(lora_name=lora_name, **kwargs) + (os.path.splitext(os.path.basename(lora_name))[0],)
     
     @classmethod
-    def IS_CHANGED(s, **kwargs):
+    def IS_CHANGED(cls, **kwargs):
         return float("NaN")
 
 class LoadRandomImage(KeepForRandomBase):
     @classmethod
     def INPUT_TYPES(cls):
-        it = {'required': {"folder":("string", {"default":""}), "extensions":("string", {"default":".png, .jpg, .jpeg"})}}
+        it = {'required': {"folder":("STRING", {"default": ""}), "extensions":("STRING", {"default": ".png, .jpg, .jpeg"})}}
         return cls.add_input_types(it)
 
-    RETURN_TYPES = ("IMAGE","STRING",)
-    RETURN_NAMES = ("image","filepath",)
+    RETURN_TYPES = ("IMAGE", "STRING",)
+    RETURN_NAMES = ("image", "filepath",)
 
-    def get_filenames(self, folder:str, extensions:str):
-        image_extensions = (e.strip() for e in extensions.split(","))
-        is_image_filename = lambda a : os.path.split(a)[1] in image_extensions
-        return [file for file in os.listdir(folder) if is_image_filename(file)]
+    def get_filenames(self, folder: str, extensions: str):
+        image_extensions = {e.strip().lower() for e in extensions.split(",")}
+        return [file for file in os.listdir(folder) if os.path.splitext(file)[1].lower() in image_extensions]
 
-    def func_(self, folder:str, extensions:str):
-        filename = self.choose_from(self.get_filenames(folder, extensions))
+    def func_(self, folder: str, extensions: str):
+        filenames = self.get_filenames(folder, extensions)
+        if not filenames:
+            raise RandomLoaderException(f"No images found in folder: {folder}")
+        
+        filename = self.choose_from(filenames)
         filepath = os.path.join(folder, filename)
-        i = Image.open(filepath)
-        i = ImageOps.exif_transpose(i)
-        image = i.convert("RGB")
-        image = np.array(image).astype(np.float32) / 255.0
-        image = torch.from_numpy(image)[None,]
-        return (image, filepath, )
+        print(f"[INFO] Selected Image: {filepath}")
+        
+        img = Image.open(filepath)
+        img = ImageOps.exif_transpose(img).convert("RGB")
+        image = torch.from_numpy(np.array(img).astype(np.float32) / 255.0).unsqueeze(0)
+        return image, filepath
