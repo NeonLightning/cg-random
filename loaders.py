@@ -125,23 +125,22 @@ class LoadRandomImage(KeepForRandomBase):
         it = {'required': {"folder":("STRING", {"default":""}), "extensions":("STRING", {"default":".png, .jpg, .jpeg"})}}
         return cls.add_input_types(it)
 
-    RETURN_TYPES = ("IMAGE","STRING",)
-    RETURN_NAMES = ("image","filepath",)
+    RETURN_TYPES = ("IMAGE", "STRING",)
+    RETURN_NAMES = ("image", "filepath",)
 
     def get_filenames(self, folder:str, extensions:str):
         _filenames = os.listdir(folder)
-        print(f"Files in folder: {_filenames}")
+        #print(f"Files in folder: {_filenames}")
         filenames = []
         for filename in _filenames:
             name, ext = os.path.splitext(filename.lower())
             if ext in extensions:
-                print(f"Adding: {filename} (ext: {ext}) in {extensions} extension(s)")
+                #print(f"Adding: {filename} (ext: {ext}) in {extensions} extension(s)")
                 filenames.append(filename)
             else:
-                print(f"Skipping: {filename} (ext: {ext}) not in {extensions} extension(s)")
-        print(f"Filenames: {filenames}")
+                #print(f"Skipping: {filename} (ext: {ext}) not in {extensions} extension(s)")
+        #print(f"Filenames: {filenames}")
         return filenames
-
 
     def func_(self, folder:str, extensions:str):
         filename = random.choice(self.get_filenames(folder, extensions))
