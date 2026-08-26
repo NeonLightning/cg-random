@@ -3,7 +3,8 @@ from .common import BaseNode, SeedContext, SEED_INPUT
 
 class RandomBase(BaseNode):
     CATEGORY = "randoms"
-    def IS_CHANGED(self, **kwargs):
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
         return random.random()
 
 class RandomFloat(RandomBase):
@@ -23,10 +24,10 @@ class RandomFloat(RandomBase):
 class RandomInt(RandomBase):
     RETURN_NAMES = ("random_int",)
     REQUIRED = { 
-                "minimum": ("INT", {"default": 0}), 
-                "maximum": ("INT", {"default": 99999999}), 
-                "seed": SEED_INPUT(),
-            }
+        "minimum": ("INT", {"default": 0,        "min": -(2**31), "max": 2**31-1, "display": "number"}), 
+        "maximum": ("INT", {"default": 2**31-1,  "min": -(2**31), "max": 2**31-1, "display": "number"}), 
+        "seed":    SEED_INPUT(),
+    }
     RETURN_TYPES = ("INT",)
     def func(self, minimum, maximum, seed):
         with SeedContext(seed):

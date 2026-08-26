@@ -3,7 +3,8 @@ from .common import BaseNode
 class SystematicBase(BaseNode):
     CATEGORY = "randoms"
     LAST = None
-    def IS_CHANGED(self, **kwargs):
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
         return float("NaN")
     
     def func(self, minimum, maximum, step, restart, **kwargs):
