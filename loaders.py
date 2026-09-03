@@ -138,6 +138,7 @@ class LoadRandomImage(KeepForRandomBase):
                 #print(f"Adding: {filename} (ext: {ext}) in {extensions} extension(s)")
                 filenames.append(filename)
             else:
+                pass
                 #print(f"Skipping: {filename} (ext: {ext}) not in {extensions} extension(s)")
         #print(f"Filenames: {filenames}")
         return filenames
